@@ -1,9 +1,12 @@
-
-  node_modules
-  .env
-  .expo
-  .env.local
-  .env.development.local
-  .env.test.local
-  .env.production.local
-  
+node_modules
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.expo
+dist/
+web-build/
+*.tsbuildinfo
+.DS_Store
+dump.rdb
