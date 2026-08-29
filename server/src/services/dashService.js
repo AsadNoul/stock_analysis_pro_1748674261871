@@ -66,12 +66,20 @@ export async function getDashById(dashId) {
 
 export async function joinDash(dashId, userId, vehicleId) {
   const dash = await getDashById(dashId);
-  if (dash.status !== 'lobby') throw new DashServiceError('Dash already launched', 409);
+  const existing = dash.participants.find((p) => p.userId === userId);
+
+  // A brand-new participant can only join during lobby, but an existing one
+  // must be able to rejoin (rebind their socket to the room, get marked back
+  // online) at any status — this is also the reconnect path (§4: cancel the
+  // offline-grace job) and it has to keep working once the dash is active,
+  // or a reconnecting client silently never emits telemetry again.
+  if (!existing && dash.status !== 'lobby') {
+    throw new DashServiceError('Dash already launched', 409);
+  }
 
   const user = await User.findById(userId);
   if (!user) throw new DashServiceError('Unknown user', 404);
 
-  const existing = dash.participants.find((p) => p.userId === userId);
   if (existing) {
     existing.vehicleId = vehicleId ?? existing.vehicleId;
     existing.connection.status = 'online';

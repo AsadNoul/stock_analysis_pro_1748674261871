@@ -76,9 +76,21 @@ async function finalizeDash(dashId, loserId) {
   const dash = await Dash.findById(dashId);
   if (!dash || dash.status === 'finished') return;
 
-  // Whoever hasn't arrived yet when finalize fires is the loser.
-  const stillActive = dash.participants.filter((p) => !p.arrivedAt);
-  const finalLoserId = loserId ?? stillActive[0]?.userId ?? null;
+  // Two ways finalize gets here with no explicit loserId: (a) forced early —
+  // e.g. the offline-grace path — with someone genuinely still un-arrived,
+  // who is the loser by default; or (b) the normal path, where the dash's
+  // true last participant just crossed the geofence themselves, so everyone
+  // already has arrivedAt/rank and the loser is simply whoever ranked last.
+  const notYetArrived = dash.participants.filter((p) => !p.arrivedAt);
+  let finalLoserId = loserId;
+  if (!finalLoserId) {
+    if (notYetArrived.length > 0) {
+      finalLoserId = notYetArrived[0].userId;
+    } else {
+      const lastRanked = dash.participants.slice().sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))[0];
+      finalLoserId = lastRanked?.userId ?? null;
+    }
+  }
   if (finalLoserId) {
     const loser = dash.participants.find((p) => p.userId === finalLoserId);
     if (loser && !loser.arrivedAt) {
@@ -145,11 +157,16 @@ async function evaluateTick(dashId, participantId, lat, lng) {
       (x) => !x.arrivedAt && x.connection.status !== 'disconnected_final'
     );
     if (stillActive.length === 1 && stillActive[0].userId === participantId) {
-      // shouldn't happen — participantId just arrived — kept for parity with spec pseudocode
+      // shouldn't happen — participantId just arrived, so they're already
+      // excluded from stillActive above — kept for parity with spec pseudocode
       await finalizeDash(dashId, participantId);
-    } else if (stillActive.length === 1) {
-      await finalizeDash(dashId, stillActive[0].userId);
     } else if (stillActive.length === 0) {
+      // The dash isn't over until the actual last participant crosses the
+      // geofence themselves (§3: "fired when ... they cross the geofence") —
+      // deliberately NOT finalizing early just because only one un-arrived
+      // participant remains: that participant is mathematically guaranteed
+      // to be last, but the game waits for them to actually arrive rather
+      // than declaring it the moment it becomes inevitable.
       await finalizeDash(dashId, null);
     }
   }
